@@ -1316,6 +1316,18 @@ HAML
     assert_nil(scope.send(:haml_buffer))
   end
 
+  def test_render_proc_should_raise_haml_syntax_error_not_ruby_syntax_error
+    assert_raises(Haml::SyntaxError) do
+      Haml::Engine.new("%p{:foo => !}").render_proc(Object.new, :foo).call
+    end
+  end
+
+  def test_render_should_raise_haml_syntax_error_not_ruby_syntax_error
+    assert_raises(Haml::SyntaxError) do
+      Haml::Engine.new("%p{:foo => !}").render
+    end
+  end
+
   def test_ugly_true
     assert_equal("<div id='outer'>\n<div id='inner'>\n<p>hello world</p>\n</div>\n</div>\n",
                  render("#outer\n  #inner\n    %p hello world", :ugly => true))
@@ -1433,6 +1445,13 @@ HAML
     assert_equal("<div data-baz='bang' data-foo-bar='blip'></div>\n",
       render("%div{:data => {:foo_bar => 'blip', :baz => 'bang'}}"))
   end
+
+	def test_html5_arbitrary_hash_valued_attributes_with
+    assert_equal("<div aria-foo='blip'></div>\n",
+      render("%div{:aria => {:foo => 'blip'}}"))
+    assert_equal("<div foo-baz='bang'></div>\n",
+      render("%div{:foo => {:baz => 'bang'}}"))
+	end
 
   def test_html5_data_attributes_with_nested_hash
     assert_equal("<div data-a-b='c'></div>\n", render(<<-HAML))

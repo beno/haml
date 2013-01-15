@@ -263,6 +263,9 @@ RUBY
     # available if the {file:REFERENCE.md#suppress_eval-option `:suppress_eval`}
     # option is set to true. The Ruby code is evaluated in the same context as
     # the Haml template.
+    #
+    # The code in the filter has an exclusive lock (using `Thread.exlusive`) when
+    # it runs, to prevent issues from sharing the global `$stdout`.
     module Ruby
       include Base
       require 'stringio'
@@ -272,11 +275,16 @@ RUBY
         return if compiler.options[:suppress_eval]
         compiler.instance_eval do
           push_silent <<-FIRST.gsub("\n", ';') + text + <<-LAST.gsub("\n", ';')
-            _haml_old_stdout = $stdout
-            $stdout = StringIO.new(_hamlout.buffer, 'a')
+            Thread.exclusive do
+              begin
+                _haml_old_stdout = $stdout
+                $stdout = StringIO.new(_hamlout.buffer, 'a')
           FIRST
-            _haml_old_stdout, $stdout = $stdout, _haml_old_stdout
-            _haml_old_stdout.close
+              ensure
+                _haml_old_stdout, $stdout = $stdout, _haml_old_stdout
+                _haml_old_stdout.close
+              end
+            end
           LAST
         end
       end
@@ -314,14 +322,18 @@ RUBY
 
       def self.extended(base)
         base.options = {}
-        base.instance_eval do
+        # There's a bug in 1.9.2 where the same parse tree cannot be shared
+        # across several singleton classes -- this bug is fixed in 1.9.3.
+        # We work around this by using a string eval instead of a block eval
+        # so that a new parse tree is created for each singleton class.
+        base.instance_eval %Q{
           include Base
 
           def render_with_options(text, compiler_options)
             text = template_class.new(nil, 1, options) {text}.render
             super(text, compiler_options)
           end
-        end
+        }
       end
     end
 
