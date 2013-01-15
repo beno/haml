@@ -44,6 +44,26 @@ module Haml
 
     # Designates a non-parsed line. Not actually a character.
     PLAIN_TEXT      = -1
+    
+    # Designates a piece of client-side ejs functionality
+    HAML_EJS = "^"
+    # Designates a client-side interpolated ejs value
+    HAML_EJS_INTERPOLATE         = /^#{Regexp.escape(HAML_EJS)}=\s+(.*)$/
+    # Designates a client-side interpolated raw ejs value
+    HAML_EJS_INTERPOLATE_RAW     = /^#{Regexp.escape(HAML_EJS)}==\s+(.*)$/
+    # Designates a client-side conditional silent ejs block
+    HAML_EJS_EVALUATE  = /^#{Regexp.escape(HAML_EJS)}\s+(.*)$/
+    # Designates a client-side conditional ejs block
+    HAML_EJS_CONDITIONAL         = /^#{Regexp.escape(HAML_EJS)}if\s+(.*)$/
+    # Designates a client-side negated conditional ejs block
+    HAML_EJS_NEGATED_CONDITIONAL = /^#{Regexp.escape(HAML_EJS)}unless\s+(.*)$/
+    # Designates a client-side negated conditional ejs block
+    HAML_EJS_ELSEIF_CONDITIONAL  = /^#{Regexp.escape(HAML_EJS)}elsif\s+(.*)$/
+    # Designates a client-side negated conditional ejs block
+    HAML_EJS_ELSE_CONDITIONAL    = /^#{Regexp.escape(HAML_EJS)}else\s*$/
+    # Designates a client-side iteration ejs block
+    HAML_EJS_ITERATE             = /^#{Regexp.escape(HAML_EJS)}each\s+(.*)$/
+
 
     # Keeps track of the ASCII values of the characters that begin a
     # specially-interpreted line.
@@ -58,7 +78,8 @@ module Haml
       FLAT_SCRIPT,
       SILENT_SCRIPT,
       ESCAPE,
-      FILTER
+      FILTER,
+      HAML_EJS
     ]
 
     # The value of the character that designates that a line is part
@@ -78,6 +99,7 @@ module Haml
     # Try to parse assignments to block starters as best as possible
     START_BLOCK_KEYWORD_REGEX = /(?:\w+(?:,\s*\w+)*\s*=\s*)?(#{START_BLOCK_KEYWORDS.join('|')})/
     BLOCK_KEYWORD_REGEX = /^-?\s*(?:(#{MID_BLOCK_KEYWORDS.join('|')})|#{START_BLOCK_KEYWORD_REGEX.source})\b/
+    HAML_EJS_BLOCK_KEYWORD_REGEX = /^#{Regexp.escape(HAML_EJS)}(if|else|elsif|unless)\s*/
 
     # The Regex that matches a Doctype command.
     DOCTYPE_REGEX = /(\d(?:\.\d)?)?[\s]*([a-z]*)\s*([^ ]+)?/i
@@ -233,14 +255,20 @@ module Haml
         return push plain(text[1..-1].strip, false) if text[1] == ?\s
         push plain(text)
       when ESCAPE; push plain(text[1..-1])
+      when HAML_EJS; push haml_ejs(text)
       else; push plain(text)
       end
     end
 
     def block_keyword(text)
+      if HamlEjs.enabled
+        haml_ejs_keyword = text.scan(HAML_EJS_BLOCK_KEYWORD_REGEX)[0]
+        return haml_ejs_keyword[0] if haml_ejs_keyword
+      end
       return unless keyword = text.scan(BLOCK_KEYWORD_REGEX)[0]
       keyword[0] || keyword[1]
     end
+
 
     def mid_block_keyword?(text)
       MID_BLOCK_KEYWORDS.include?(block_keyword(text))
@@ -444,6 +472,42 @@ module Haml
       end
 
       ParseNode.new(:filter, @index, :name => name, :text => @filter_buffer)
+    end
+
+    def haml_ejs text
+      return plain(text) unless HamlEjs.enabled
+      case text
+      when HAML_EJS_INTERPOLATE; haml_ejs_interpolate($1)
+      when HAML_EJS_INTERPOLATE_RAW; haml_ejs_interpolate_raw($1)
+      when HAML_EJS_EVALUATE; haml_ejs_evaluate($1)
+      when HAML_EJS_CONDITIONAL; haml_ejs_conditional($1)
+      when HAML_EJS_ELSE_CONDITIONAL; haml_ejs_conditional($1, :else => true)
+      when HAML_EJS_ELSEIF_CONDITIONAL; haml_ejs_conditional($1, :else => true)
+      when HAML_EJS_NEGATED_CONDITIONAL; haml_ejs_conditional($1, :negate => true)
+      when HAML_EJS_ITERATE; haml_ejs_iterate($1)
+      else
+        raise SyntaxError.new("Unknow HamlEjs sigil #{text}")
+      end
+    end
+    
+    def haml_ejs_interpolate text
+      ParseNode.new(:ejs_interpolate, @index, :text => text)
+    end
+    
+    def haml_ejs_interpolate_raw text
+      ParseNode.new(:ejs_interpolate_raw, @index, :text => text)
+    end
+    
+    def haml_ejs_evaluate text
+      ParseNode.new(:ejs_evaluate, @index, :text => text)
+    end
+    
+    def haml_ejs_conditional text, options = {}
+      ParseNode.new(:ejs_conditional, @index, options.merge(:expression => text))
+    end
+    
+    def haml_ejs_iterate text
+      ParseNode.new(:ejs_iterate, @index, :collection => text)
     end
 
     def close

@@ -1,5 +1,5 @@
 require File.expand_path(File.join(File.dirname(__FILE__), '../test_helper'))
-require 'pry'
+# require 'pry'
 
 class HamlEjsTest < MiniTest::Unit::TestCase
   templates_dir = File.join(File.dirname(__FILE__), 'templates')
